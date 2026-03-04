@@ -233,6 +233,13 @@ export default function App() {
   const [autoSave, setAutoSave] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef(null);
+  const previewRef = useRef(null);
+  const [splitPct, setSplitPct] = useState(30);
+  const splitDragging = useRef(false);
+  const splitContainerRef = useRef(null);
   const [seqTheme, setSeqTheme] = useState("simple");
   const [mReady, setMReady] = useState(mermaidReady);
   const [diagrams, setDiagrams] = useState([]);
@@ -308,7 +315,56 @@ export default function App() {
     setRenderer(r); setError("");
     setCode(r === "jssd" ? JS_EXAMPLES["Request Flow"] : MERMAID_EXAMPLES["Flowchart"]);
     setSaveStatus("unsaved");
+    setPan({ x: 0, y: 0 }); setZoom(1);
   }
+
+  function handleSplitMouseDown() { splitDragging.current = true; }
+  function handleSplitMouseMove(e) {
+    if (!splitDragging.current || !splitContainerRef.current) return;
+    const rect = splitContainerRef.current.getBoundingClientRect();
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setSplitPct(Math.min(60, Math.max(15, pct)));
+  }
+  function handleSplitMouseUp() { splitDragging.current = false; }
+
+  function handleMouseDown(e) {
+    setDragging(true);
+    dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+  }
+  function handleMouseMove(e) {
+    if (!dragging || !dragStart.current) return;
+    setPan({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+  }
+  function handleMouseUp() { setDragging(false); }
+
+  function handleWheel(e) {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    setZoom(z => Math.min(2, Math.max(0.2, z + delta)));
+  }
+
+  function fitToWidth() {
+    if (!previewRef.current) return;
+    const svgEl = previewRef.current.querySelector("svg");
+    if (!svgEl) return;
+    const containerW = previewRef.current.clientWidth - 48;
+    const containerH = previewRef.current.clientHeight - 48;
+    const svgW = svgEl.getBoundingClientRect().width / zoom;
+    const svgH = svgEl.getBoundingClientRect().height / zoom;
+    if (svgW && svgH) {
+      const scaleW = containerW / svgW;
+      const scaleH = containerH / svgH;
+      const newZoom = Math.min(scaleW, scaleH, 1); // never scale up beyond 100%
+      setZoom(newZoom);
+      setPan({ x: 0, y: 0 });
+    }
+  }
+
+  // Auto fit when diagram changes
+  useEffect(() => {
+    const t = setTimeout(fitToWidth, 100);
+    return () => clearTimeout(t);
+  }, [mSvg, code, mReady]);
 
   function handleLogin() { instance.loginPopup(loginRequest); }
   function handleLogout() { instance.logoutPopup(); }
@@ -344,7 +400,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: panel, borderBottom: `1px solid ${border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 15 }}>M</div>
-          <span style={{ fontWeight: 700, fontSize: 16, color: accent, letterSpacing: -0.5 }}>MurMade</span>
+          <span style={{ fontWeight: 700, fontSize: 16, color: accent, letterSpacing: -0.5 }}>MermAid</span>
         </div>
         <div style={{ width: 1, height: 20, background: border }} />
 
@@ -404,7 +460,7 @@ export default function App() {
         ))}
         {renderer === "jssd" && (
           <div style={{ marginLeft: "auto", fontSize: 11, color: subtext, whiteSpace: "nowrap" }}>
-            {[["->", "sync"], [-">>" , "async"], ["-->", "return"], ["-->>", "async ret"]].map(([a, l]) => (
+            {[["->", "sync"], ["->>" , "async"], ["-->", "return"], ["-->>", "async ret"]].map(([a, l]) => (
               <span key={a} style={{ marginRight: 8 }}><code style={{ background: accentLight, color: accent, padding: "1px 5px", borderRadius: 3 }}>{a}</code> {l}</span>
             ))}
           </div>
@@ -440,8 +496,8 @@ export default function App() {
       )}
 
       {/* Split pane */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <div style={{ width: "40%", display: "flex", flexDirection: "column", borderRight: `1px solid ${border}` }}>
+      <div ref={splitContainerRef} style={{ display: "flex", flex: 1, overflow: "hidden" }} onMouseMove={handleSplitMouseMove} onMouseUp={handleSplitMouseUp} onMouseLeave={handleSplitMouseUp}>
+        <div style={{ width: `${splitPct}%`, display: "flex", flexDirection: "column", borderRight: `1px solid ${border}` }}>
           <div style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, color: subtext, background: headerBg, borderBottom: `1px solid ${border}`, letterSpacing: 0.5, textTransform: "uppercase" }}>
             {renderer === "jssd" ? "Sequence Source" : "Mermaid Source"}
           </div>
@@ -450,20 +506,27 @@ export default function App() {
           {error && <div style={{ padding: "8px 12px", background: "#fef2f2", borderTop: "1px solid #fecaca", color: "#dc2626", fontSize: 12, fontFamily: "monospace" }}>⚠ {error}</div>}
         </div>
 
+        {/* Draggable divider */}
+        <div onMouseDown={handleSplitMouseDown} style={{ width: 5, cursor: "col-resize", background: border, flexShrink: 0, transition: "background 0.15s" }}
+          onMouseEnter={e => e.target.style.background = accent}
+          onMouseLeave={e => e.target.style.background = border} />
+
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, color: subtext, background: headerBg, borderBottom: `1px solid ${border}`, letterSpacing: 0.5, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
             Preview
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
               {[["−", -0.1], ["+", 0.1]].map(([l, d]) => (
-                <button key={l} onClick={() => setZoom(z => Math.min(2, Math.max(0.4, z + d)))}
+                <button key={l} onClick={() => setZoom(z => Math.min(2, Math.max(0.2, z + d)))}
                   style={{ width: 22, height: 22, borderRadius: 4, border: `1px solid ${border}`, background: "transparent", cursor: "pointer", color: subtext, fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>{l}</button>
               ))}
               <span style={{ fontSize: 11, color: subtext, minWidth: 36, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(1)} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${border}`, background: "transparent", cursor: "pointer", color: subtext }}>Reset</button>
+              <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${border}`, background: "transparent", cursor: "pointer", color: subtext }}>Reset</button>
+              <button onClick={fitToWidth} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, border: `1px solid ${border}`, background: "transparent", cursor: "pointer", color: subtext }}>Fit</button>
             </div>
           </div>
-          <div style={{ flex: 1, overflow: "auto", padding: 24, background: "#fff", display: "flex", alignItems: "flex-start", justifyContent: "center" }}>
-            <div id="preview-area" style={{ transform: `scale(${zoom})`, transformOrigin: "top center", transition: "transform 0.15s" }}>
+          <div ref={previewRef} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp} onWheel={handleWheel}
+            style={{ flex: 1, overflow: "hidden", padding: 24, background: "#fff", display: "flex", alignItems: "flex-start", justifyContent: "center", cursor: dragging ? "grabbing" : "grab", userSelect: "none" }}>
+            <div id="preview-area" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "top center", transition: dragging ? "none" : "transform 0.15s" }}>
               {renderer === "jssd"
                 ? <SequenceDiagram src={code} theme={seqTheme} />
                 : <div dangerouslySetInnerHTML={{ __html: mSvg || `<p style='color:#94a3b8;font-size:13px'>${mReady ? "Type a diagram…" : "Loading Mermaid…"}</p>` }} />
