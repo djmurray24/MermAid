@@ -400,7 +400,7 @@ export default function App() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", background: panel, borderBottom: `1px solid ${border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: accent, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 15 }}>M</div>
-          <span style={{ fontWeight: 700, fontSize: 16, color: accent, letterSpacing: -0.5 }}>MermAid</span>
+          <span style={{ fontWeight: 700, fontSize: 16, color: accent, letterSpacing: -0.5 }}>MurMade</span>
         </div>
         <div style={{ width: 1, height: 20, background: border }} />
 
